@@ -1,0 +1,1 @@
+cmd_/home/newman/works/github/openurl/kernel/test_main.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/newman/works/github/openurl/kernel/test_main.ko /home/newman/works/github/openurl/kernel/test_main.o /home/newman/works/github/openurl/kernel/test_main.mod.o
