@@ -4,8 +4,10 @@
 #include <pthread.h>
 #include <string.h>
 #include <syslog.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
-#define PID_FILE "/tmp/openurl.pid"
+#define PID_FILE "/tmp/intelibd.pid"
 
 #define sys_debug(format,args...)\
 {\
@@ -16,23 +18,46 @@
 int reload = 0;
 int stop = 0;
 int debug = 0;
+int fd = -1;
+
+#define LOCKMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+
+static int lockfile(int fd)
+{
+	struct flock fl;
+	fl.l_type = F_WRLCK;  
+	fl.l_start = 0;
+	fl.l_whence = SEEK_SET;
+	fl.l_len = 0;
+	return (fcntl(fd, F_SETLK, &fl)); 
+}
 
 static int save_pid()
 {
 	pid_t pid;
 	int ret = 0;
 	char buff[64] = {0,};
-	FILE *fp = fopen(PID_FILE,"w+");
-	if(fp == NULL){
+	fd = open(PID_FILE, O_RDWR | O_CREAT, LOCKMODE );
+	if(fd < 0){
 		ret = -1;
 		goto out;
 	}
+	if (lockfile(fd) < 0){
+		ret = -1;
+		close(fd);
+		goto out;
+	}
+	ftruncate(fd,0);
 	pid = getpid();
-	sprintf(buff,"%d",pid);
-	fwrite(buff,strlen(buff),1,fp);
-	fclose(fp);
+	sprintf(buff, "%ld", (long)getpid());
+	write(fd, buff, strlen(buff));
 out:
 	return ret;
+}
+static void remove_pid()
+{
+	if(fd >= 0)
+		close(fd);
 }
 static pid_t read_pid()
 {
@@ -75,6 +100,15 @@ int sendsignal(int signo);
 int start();
 void help();
 
+static int init_sock();
+static int init_hash();
+static int init_engine();
+static int init_threads();
+
+static void release_sock();
+static void release_hash();
+static void release_engine();
+
 int main(int argc,char **argv)
 {
 	int ret = 0;
@@ -105,16 +139,42 @@ void *worker(void *data){
 }
 int start()
 {
+	int ret = 0;
+	int pid_flg = 0,sock_flg = 0,hash_flg = 0,engine_flg = 0;
 	pthread_t tid;
 	sigset_t bset,oset;
 	siginfo_t info;
 	daemon(0,0);
-	save_pid();
+	if(-1 == save_pid()){
+		ret = -1;
+		goto out;		
+	}
+	pid_flg = 1;
+	if(-1 == init_sock()){
+		ret = -1;
+		goto out;
+	}
+	sock_flg = 1;
+	if(-1 == init_hash()){
+		ret = -1;
+		goto out;		
+	}
+	hash_flg = 1;
+	if(-1 == init_engine()){
+		ret = -1;
+		goto out;
+	}
+	engine_flg = 1;
 	sigemptyset(&bset);
 	sigaddset(&bset,SIGHUP);
 	sigaddset(&bset,SIGTERM);
 	sigaddset(&bset,SIGUSR1);
 	sigaddset(&bset,SIGUSR2);
+	
+	if(-1 == init_threads()){
+		ret = -1;
+		goto out;
+	}
 	pthread_create(&tid,NULL,worker,NULL);
 	pthread_sigmask(SIG_BLOCK,&bset,&oset);
 	while(!stop){
@@ -125,6 +185,16 @@ int start()
 		}
 	}
 	pthread_join(tid,NULL);	
+out:
+	if(engine_flg)
+		release_engine();
+	if(hash_flg)
+		release_hash();
+	if(sock_flg)
+		release_sock();
+	if(pid_flg)
+		remove_pid();
+	return; 
 
 }
 int sendsignal(int signo)
@@ -147,3 +217,47 @@ void help()
 	printf("intelibd debug\n");
 	printf("-----------------------------\n");
 }
+
+int init_sock()
+{
+	int ret = 0;
+
+	return ret;
+}
+
+int init_hash()
+{
+	int ret = 0;
+
+	return ret;
+}
+
+int init_engine()
+{
+	int ret = 0;
+
+	return ret;
+}
+
+int init_threads()
+{
+	int ret = 0;
+
+	return ret;
+}
+
+void release_sock()
+{
+	return;
+}
+void release_hash()
+{
+	return;
+}
+void release_engine()
+{
+	return;
+}
+
+
+
