@@ -9,10 +9,32 @@
 #include <net/sock.h>
 #include <net/ipv6.h>
 
+#include "intel_netlink.h"
+
 static struct sock* intel_sock = NULL;
 static __u32 use_pid = 0;
 
-static void kernel_receive(struct sk_buff *skb)
+static void kernel_receive(struct sk_buff *skb);
+
+void intel_netlink_fini(void)
+{
+	netlink_kernel_release(intel_sock );
+}
+
+int intel_netlink_init(void)
+{
+	int ret = 0;
+	struct netlink_kernel_cfg cfg = {.input = kernel_receive,};
+	intel_sock = netlink_kernel_create(&init_net, NETLINK_URL_INTEL,&cfg);
+	if(!intel_sock){
+		ret = -1;
+		goto out;
+	}
+out:
+	return ret;
+}
+
+void kernel_receive(struct sk_buff *skb)
 {
 	struct nlmsghdr *nlh = NULL;
 	
@@ -20,7 +42,7 @@ static void kernel_receive(struct sk_buff *skb)
 		goto out;
 	if(skb->len < sizeof(struct nlmsghdr))
 		goto out;
-	if((nlh = nlmsg_hdr(skb) == NULL))
+	if((nlh = nlmsg_hdr(skb)) == NULL)
 		goto out;
 	if(nlh->nlmsg_len < sizeof(struct nlmsghdr))
 		goto out;
@@ -44,26 +66,13 @@ out:
 	return;
 }
 
-int  netlink_intel_send(int groupid,int grouptype,char * url,int len )
+void netlink_intel_send(char *url,int urllen,char *uri,int urilen,
+	unsigned int ipaddr,int httpmethod)
 {
-	return 0;
+	struct 
+	return;
 }
 
-int intel_netlink_init(void)
-{
-	int ret = 0;
-	intel_sock = netlink_kernel_create(&init_net, NETLINK_URL_INTEL,
-			0, kernel_receive,NULL, THIS_MODULE);
-	if(!intel_sock){
-		ret = -1;
-		goto out;
-	}
-	return ret;
-}
-void intel_netlink_fini(void)
-{
-	netlink_kernel_release(intel_sock );
-}
 
 
 
