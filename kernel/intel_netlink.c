@@ -62,7 +62,7 @@ out:
 }
 
 void netlink_intel_send(char *host,int hostlen,char *path,int pathlen,
-	unsigned int ipaddr,int httpmethod)
+	unsigned int ipaddr,int method)
 {
 	int size;
 	unsigned char *old_tail = NULL;
@@ -92,18 +92,20 @@ void netlink_intel_send(char *host,int hostlen,char *path,int pathlen,
 	goto out;
 	*/
 	size = NLMSG_SPACE(sizeof(struct url_item_request));
-	skb = alloc_skb(size, GFP_ATOMIC);	
+	skb = alloc_skb(size, GFP_ATOMIC);
+	old_tail = skb_tail_pointer(skb);	
 	nlh = (struct nlmsghdr*)skb_put(skb,NLMSG_LENGTH(sizeof( struct url_item_request)));
 	data = NLMSG_DATA(nlh);
 
 	memset(data, 0, sizeof(struct url_item_request));
 	memcpy(data->host,host,hostlen);
 	data->host[hostlen] = '\0';
+	printk("host:%s\n",data->host);
 	memcpy(data->path,path,pathlen);
 	data->path[pathlen] = '\0';
 
 	data->dst = ipaddr;
-	data->method = httpmethod;
+	data->method = method;
 
 	nlh->nlmsg_type = MSG_STUDY_URL;
 	nlh->nlmsg_len = skb_tail_pointer(skb)- old_tail;

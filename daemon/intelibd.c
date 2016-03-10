@@ -147,6 +147,7 @@ void *receiver_proc(void *data)
 	struct url_item_request *request;
 	while(!stop){
 		sys_debug("receiver is working\n");
+		request = NULL;
 		request = (struct url_item_request *)malloc(sizeof(struct url_item_request));
 		if(request == NULL){
 			sleep(1);
@@ -157,8 +158,7 @@ void *receiver_proc(void *data)
 			free(request);
 			continue;
 		}
-
-		sleep(1);
+		printf("%s\n",request->host);
 		free(request);
 		//do something
 	}
@@ -310,7 +310,7 @@ int recv_msg(int sock,struct url_item_request *request)
 {
 	struct sockaddr_nl kpeer;
 	int rcvlen=0,kpeer_len=0;
-	
+	struct url_item_request_deamon info;	
 	if(request == NULL){
 		rcvlen = -1;
 		goto out;
@@ -320,7 +320,7 @@ int recv_msg(int sock,struct url_item_request *request)
 	kpeer.nl_pid = 0;
 	kpeer.nl_groups = 0;
 	kpeer_len = sizeof(kpeer);
-	rcvlen = recvfrom(sock, request, sizeof(struct url_item_request), 0, (struct sockaddr*)&kpeer, (socklen_t *)&kpeer_len);
+	rcvlen = recvfrom(sock, &info, sizeof(struct url_item_request_deamon), 0, (struct sockaddr*)&kpeer, (socklen_t *)&kpeer_len);
 	if(rcvlen <=0){
 		rcvlen = -1;
 		goto out;
@@ -329,6 +329,10 @@ int recv_msg(int sock,struct url_item_request *request)
 		rcvlen = -1;
 		goto out;
 	}
+	request->method = info.data.method;
+	request->dst = info.data.dst;
+	strcpy(request->host,info.data.host);
+	strcpy(request->path,info.data.path);
 out:
 	return rcvlen;
 }

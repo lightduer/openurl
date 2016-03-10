@@ -26,15 +26,23 @@ struct url_item_request
 	unsigned int dst;
 	char host[URL_HOST_LEN];
 	char path[URL_PATH_LEN];
-	struct nlmsghdr hdr;
+
 };
+
+struct url_item_request_deamon
+{
+	struct nlmsghdr hdr;
+	struct url_item_request data;
+};
+
 
 struct url_item_result
 {
+	struct nlmsghdr hdr; 
 	unsigned short type;
 	char host[URL_HOST_LEN];
 	char path[URL_PATH_LEN];
-	struct nlmsghdr hdr; 
+
 };
 
 #endif

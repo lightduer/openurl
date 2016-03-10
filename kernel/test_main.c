@@ -37,7 +37,6 @@ static unsigned int do_http(unsigned int hook,struct sk_buff *skb,
 	char *http;
 	char *host;
 	char *path;
-	char *url;
 	char *end,*tmp;
 	int hostlen = 0;	
 	int pathlen = 0;
@@ -95,7 +94,7 @@ static unsigned int do_http(unsigned int hook,struct sk_buff *skb,
 		}else
 			break;
 	}
-	if(*tmp != '\r'){
+	if(*tmp != '\r' || hostlen == 0){
 		goto out;
 	}
 	netlink_intel_send(host,hostlen,path,pathlen,ip->daddr,HTTP_GET);
