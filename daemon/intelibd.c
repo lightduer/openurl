@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <linux/netlink.h>
-#include "url.h"
+#include "../include/url.h"
 
 #define PID_FILE "/tmp/intelibd.pid"
 
@@ -157,6 +157,9 @@ void *receiver_proc(void *data)
 			free(request);
 			continue;
 		}
+
+		sleep(1);
+		free(request);
 		//do something
 	}
 	return NULL;
@@ -186,7 +189,7 @@ int start()
 	int pid_flg = 0,sock_flg = 0,hash_flg = 0,engine_flg = 0;
 	sigset_t bset,oset;
 	siginfo_t info;
-	daemon(0,0);
+//	daemon(0,0);
 	if(-1 == save_pid()){
 		ret = -1;
 		goto out;		
@@ -212,20 +215,25 @@ int start()
 	sigaddset(&bset,SIGTERM);
 	sigaddset(&bset,SIGUSR1);
 	sigaddset(&bset,SIGUSR2);
-	
 	if(-1 == init_threads()){
 		ret = -1;
 		goto out;
 	}
+
 	pthread_sigmask(SIG_BLOCK,&bset,&oset);
+
+	
 	while(!stop){
+
 		if(reload){
 		}
 		if(sigwaitinfo(&bset,&info) != -1){
 			do_signal(info.si_signo);
 		}
+
 	}
 	exit_threads();
+
 out:
 	if(engine_flg)
 		release_engine();
@@ -312,8 +320,7 @@ int recv_msg(int sock,struct url_item_request *request)
 	kpeer.nl_pid = 0;
 	kpeer.nl_groups = 0;
 	kpeer_len = sizeof(kpeer);
-	
-	rcvlen = recvfrom(sock, &request, sizeof(struct url_item_request), 0, (struct sockaddr*)&kpeer, (socklen_t *)&kpeer_len);
+	rcvlen = recvfrom(sock, request, sizeof(struct url_item_request), 0, (struct sockaddr*)&kpeer, (socklen_t *)&kpeer_len);
 	if(rcvlen <=0){
 		rcvlen = -1;
 		goto out;
