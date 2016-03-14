@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <linux/netlink.h>
+#include "inteli_hash.h"
 #include "../include/url.h"
 
 #define PID_FILE "/tmp/intelibd.pid"
@@ -112,13 +113,13 @@ int start();
 void help();
 
 static int init_sock();
-static int init_hash();
+//static int init_hash();
 static int init_engine();
 static int init_threads();
 
 static void exit_threads();
 static void release_sock();
-static void release_hash();
+//static void release_hash();
 static void release_engine();
 
 int main(int argc,char **argv)
@@ -142,6 +143,10 @@ int main(int argc,char **argv)
 	}
 	return ret;
 }
+int queue_worker(struct url_item_request *request)
+{
+	return 0;
+}
 void *receiver_proc(void *data)
 {
 	struct url_item_request *request;
@@ -156,12 +161,19 @@ void *receiver_proc(void *data)
 		memset(request,0,sizeof(struct url_item_request));
 		if(recv_msg(netlink_sock,request) == -1){
 			free(request);
+			usleep(500*1000);
 			continue;
 		}
-		printf("%s\n",request->host);
-		free(request);
-		//do something
+		if(findandinsert(request) == -1){	
+			free(request);
+			continue;
+		}
+		if(queue_worker(requeset) == -1){
+			findanddelete(request);
+			sleep(1);
+		}
 	}
+	//signal to worker
 	return NULL;
 }
 
@@ -176,7 +188,8 @@ void *worker_proc(void *data)
 void *resulter_proc(void *data)
 {
 	while(!stop){
-		sys_debug("worker is working\n");
+		sys_debug("result is working\n");
+		dumptable();
 		sleep(3);
 	}
 	return NULL;
@@ -201,6 +214,7 @@ int start()
 	}
 	sock_flg = 1;
 	if(-1 == init_hash()){
+		printf("hash init error!\n");
 		ret = -1;
 		goto out;		
 	}
@@ -222,7 +236,6 @@ int start()
 
 	pthread_sigmask(SIG_BLOCK,&bset,&oset);
 
-	
 	while(!stop){
 
 		if(reload){
@@ -233,7 +246,6 @@ int start()
 
 	}
 	exit_threads();
-
 out:
 	if(engine_flg)
 		release_engine();
@@ -362,13 +374,6 @@ out:
 	return ret;
 }
 
-int init_hash()
-{
-	int ret = 0;
-
-	return ret;
-}
-
 int init_engine()
 {
 	int ret = 0;
@@ -381,8 +386,7 @@ int init_threads()
 	int i;
 	int ret = 0;
 	pthread_create(&rcvid,NULL,receiver_proc,NULL);
-	for(i = 0;i < WORKERS_NUM;i++)
-		pthread_create(&workerids[i],NULL,worker_proc,NULL);
+	init_workers(worker_proc);
 	pthread_create(&resulterid,NULL,resulter_proc,NULL);
 	return ret;
 }
@@ -390,8 +394,7 @@ void exit_threads()
 {
 	int i;
 	pthread_join(rcvid,NULL);
-	for(i = 0;i < WORKERS_NUM;i++)
-		pthread_join(workerids[i],NULL);
+	exit_workers();
 	pthread_join(resulterid,NULL);
 	return;
 }
@@ -400,10 +403,6 @@ void release_sock()
 	send_msg(netlink_sock,MSG_USER_CLOSE,NULL);
 	if(netlink_sock > 0)
 		close(netlink_sock);
-	return;
-}
-void release_hash()
-{
 	return;
 }
 void release_engine()
