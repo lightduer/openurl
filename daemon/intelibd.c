@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <linux/netlink.h>
 #include "inteli_hash.h"
+#include "inteli_worker.h"
 #include "../include/url.h"
 
 #define PID_FILE "/tmp/intelibd.pid"
@@ -27,10 +28,8 @@ int fd = -1;
 
 #define LOCKMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
-#define WORKERS_NUM 5
 pthread_t rcvid;
 pthread_t resulterid;
-pthread_t workerids[WORKERS_NUM];
 
 int netlink_sock;
 
@@ -113,13 +112,11 @@ int start();
 void help();
 
 static int init_sock();
-//static int init_hash();
 static int init_engine();
 static int init_threads();
 
 static void exit_threads();
 static void release_sock();
-//static void release_hash();
 static void release_engine();
 
 int main(int argc,char **argv)
@@ -143,10 +140,6 @@ int main(int argc,char **argv)
 	}
 	return ret;
 }
-int queue_worker(struct url_item_request *request)
-{
-	return 0;
-}
 void *receiver_proc(void *data)
 {
 	struct url_item_request *request;
@@ -168,19 +161,22 @@ void *receiver_proc(void *data)
 			free(request);
 			continue;
 		}
-		if(queue_worker(requeset) == -1){
+		if(queue_worker(request) == -1){
 			findanddelete(request);
 			sleep(1);
 		}
+
 	}
-	//signal to worker
 	return NULL;
 }
 
 void *worker_proc(void *data)
 {
+	int id = *(int *)data;
+	free(data);
 	while(!stop){
 		sys_debug("worker is working\n");
+		do_work(id);
 		sleep(3);
 	}
 	return NULL;
@@ -189,7 +185,7 @@ void *resulter_proc(void *data)
 {
 	while(!stop){
 		sys_debug("result is working\n");
-		dumptable();
+		//dumptable();
 		sleep(3);
 	}
 	return NULL;
