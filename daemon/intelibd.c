@@ -11,6 +11,7 @@
 #include <linux/netlink.h>
 #include "inteli_hash.h"
 #include "inteli_worker.h"
+#include "inteli_engine.h"
 #include "../include/url.h"
 
 #define PID_FILE "/tmp/intelibd.pid"
@@ -112,12 +113,10 @@ int start();
 void help();
 
 static int init_sock();
-static int init_engine();
 static int init_threads();
 
 static void exit_threads();
 static void release_sock();
-static void release_engine();
 
 int main(int argc,char **argv)
 {
@@ -151,16 +150,17 @@ void *receiver_proc(void *data)
 			sleep(1);
 			continue;
 		}
+
 		memset(request,0,sizeof(struct url_item_request));
 		if(recv_msg(netlink_sock,request) == -1){
 			free(request);
 			usleep(500*1000);
 			continue;
 		}
-		if(findandinsert(request) == -1){	
+	/*	if(findandinsert(request) == -1){	
 			free(request);
 			continue;
-		}
+		}*/
 		if(queue_worker(request) == -1){
 			findanddelete(request);
 			sleep(1);
@@ -177,7 +177,6 @@ void *worker_proc(void *data)
 	while(!stop){
 		sys_debug("worker is working\n");
 		do_work(id);
-		sleep(3);
 	}
 	return NULL;
 }
@@ -235,6 +234,8 @@ int start()
 	while(!stop){
 
 		if(reload){
+			init_engine();
+			release_engine();
 		}
 		if(sigwaitinfo(&bset,&info) != -1){
 			do_signal(info.si_signo);
@@ -258,6 +259,7 @@ int sendsignal(int signo)
 {
 	char buff[64] = {0,};
 	pid_t pid = read_pid();
+	printf("pid is %d\n",pid);
 	if(pid == 0)
 		return -1;
 	sprintf(buff,"kill -%d %d",signo,pid);
@@ -370,13 +372,6 @@ out:
 	return ret;
 }
 
-int init_engine()
-{
-	int ret = 0;
-
-	return ret;
-}
-
 int init_threads()
 {
 	int i;
@@ -399,9 +394,5 @@ void release_sock()
 	send_msg(netlink_sock,MSG_USER_CLOSE,NULL);
 	if(netlink_sock > 0)
 		close(netlink_sock);
-	return;
-}
-void release_engine()
-{
 	return;
 }
