@@ -1,0 +1,12 @@
+
+all: libmpse.so test
+
+libmpse.so: acsm2.c acsm.c bnfa.c mpse.c memory.c mpse.h
+	$(CROSS)gcc $(CFLAGS) -fPIC -shared $< -o $@
+
+test: test.c mpse.h
+	$(CROSS)gcc $(CFLAGS) -lmpse -L. $< -o $@
+	
+
+clean:
+	rm -f libmpse.so test *.o

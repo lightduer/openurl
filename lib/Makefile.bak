@@ -1,0 +1,25 @@
+CC = $(CROSS)gcc
+#CFLAGS = -g -Wall 
+
+#LIBS = -lsqlite3
+LIBS += -lpcre
+
+MPSE_OBJS = acsm2.o acsm.o bnfa.o mpse.o memory.o
+
+MPSE_SO = libmpse.so
+
+.c.o:
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+all: $(MPSE_SO)
+
+$(MPSE_SO): $(MPSE_OBJS)
+	$(CC) $(CFLAGS) -shared -o $@ $^ $(LIBS)
+
+.PHONY : clean
+clean:
+	rm *.o *.so -f
+
+install:
+	cp -f *.so $(INSTALL_ROOT)/usr/local/lib/
+
