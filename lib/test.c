@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "sqlite3.h"
+#include "../include/sqlite3.h"
 #include "mpse.h"
 #include "memory.h"
 
@@ -285,10 +285,12 @@ static int add_policy_tree_to_mpse(void *mpse, struct policy_node *policy, int i
 
 static int get_buf_from_file(char *buf, int *buf_len)
 {
-	int fd, n;
+	//int fd, n;
 
         memset(buf, 0, *buf_len);
+	memcpy(buf,"he is good ,hello word",22);
 
+	/*
         fd = open("./a", O_RDONLY);
         if (fd < 0)
                 return 1;
@@ -303,6 +305,7 @@ static int get_buf_from_file(char *buf, int *buf_len)
 	}
 
 	close(fd);
+	*/
 	return 0;
 }
 

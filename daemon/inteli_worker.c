@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include "inteli_engine.h"
 #include "../include/url.h"
 
 #define WORKERS_NUM 1
@@ -22,9 +23,10 @@
 
 struct task
 {
-	int selectnum;//¸ÃsocketÂÖÑµµÄ´ÎÊýÃ»ÓÐÊý¾Ýµ½À´¹ý
+	int selectnum;//è¯¥socketè½®è®­çš„æ¬¡æ•°æ²¡æœ‰æ•°æ®åˆ°æ¥è¿‡
 	int state;
 	int sock;
+	void *resid;
 	struct url_item_request *data;
 };
 
@@ -34,11 +36,11 @@ struct worker
 	fd_set read;
 	fd_set write;
 	int maxfd;
-	int socketnum;//Õ¼ÓÃÁË¶àÉÙ¸ösocket×ÊÔ´£¬×ÊÔ´×ÜÊýÊÇSOCKETNUM
-	int *freenum;//ÓÐ¶àÉÙ¸ö¿ÕÏÐµÄqueue buff,QUEUE×î¶à»º´æQUEUELEN
+	int socketnum;//å ç”¨äº†å¤šå°‘ä¸ªsocketèµ„æºï¼Œèµ„æºæ€»æ•°æ˜¯SOCKETNUM
+	int *freenum;//æœ‰å¤šå°‘ä¸ªç©ºé—²çš„queue buff,QUEUEæœ€å¤šç¼“å­˜QUEUELEN
 	struct task tasks[QUEUELEN];
 	pthread_cond_t cond;
-	pthread_mutex_t lock;//±£»¤freenum ºÍIDLE×´Ì¬
+	pthread_mutex_t lock;//ä¿æŠ¤freenum å’ŒIDLEçŠ¶æ€
 };
 
 int master_hold[WORKERS_NUM];
@@ -98,10 +100,10 @@ void clear_a_task(struct worker *man,struct task *tk)
 	close(tk->sock);
 	free(tk->data);
 	man->socketnum--;
+	release_fsm(tk->resid);
 	pthread_mutex_lock(&man->lock);
 	memset(tk,0,sizeof(struct task));
 	(*(man->freenum))++;
-	printf("close close close close close is %d\n",(*(man->freenum)));
 	pthread_mutex_unlock(&man->lock);			
 
 }
@@ -118,21 +120,15 @@ void do_work(int id)
 	FD_ZERO(&man->read);
 	FD_ZERO(&man->write);
 	man->maxfd = -1;
+	
 	pthread_mutex_lock(&man->lock);	
-	while((*(man->freenum)) == QUEUELEN){
-	/*	error = pthread_cond_timedwait(&man->cond,&man->lock,&ts);
-		if(error == ETIMEDOUT){
-			printf("time out!\n");
-			ts.tv_sec = time(NULL)+1;
-			ts.tv_nsec = 0;
-		}*/
+	while((*(man->freenum)) == QUEUELEN)
 		pthread_cond_wait(&man->cond,&man->lock);
-	}
 	pthread_mutex_unlock(&man->lock);
+	
 	for(i = 0; i < QUEUELEN; i++){
 		state = man->tasks[i].state;
 		if(state == TASK_READY ){
-			printf("state: %d,socketnum is %d,%s%s\n",man->tasks[i].state,man->socketnum,man->tasks[i].data->host,man->tasks[i].data->path);
 			if(man->socketnum >= SOCKETNUM)
 				continue;
 			memset(&addr,0,sizeof(struct sockaddr_in));
@@ -143,36 +139,37 @@ void do_work(int id)
 			addr.sin_port = htons(80);
 			addr.sin_addr.s_addr = ((man->tasks[i]).data)->dst;
 			man->tasks[i].sock = fd;
+			man->tasks[i].resid = get_fsm();
 			(man->socketnum)++;
 			if(connect(fd,(struct sockaddr*)&addr,sizeof(struct sockaddr))< 0){
-				/*Èý´ÎÎÕÊÖÉÐÎ´Íê³É*/
+				/*ä¸‰æ¬¡æ¡æ‰‹å°šæœªå®Œæˆ*/
 				printf("connect select\n");
 				man->tasks[i].state = TASK_CONNECT;
 				FD_SET(fd,&man->read);
 				FD_SET(fd,&man->write);
 			}else{
-				/*Èý´ÎÎÕÊÖ½áÊø*/
+				/*ä¸‰æ¬¡æ¡æ‰‹ç»“æŸ*/
 				printf("connnect ok!\n");
 				man->tasks[i].state = TASK_DATA;
 				send_http_request(&man->tasks[i]);
 				FD_SET(fd,&man->read);
 			}
 		}else {
+			fd = man->tasks[i].sock;
 			if(state == TASK_CONNECT || state == TASK_DATA){
-				printf("state : %d,%s%s\n",man->tasks[i].state,man->tasks[i].data->host,man->tasks[i].data->path);
-				fd = state = man->tasks[i].sock;
 				FD_SET(fd,&man->read);
 			}
 			if(state == TASK_CONNECT){
-				FD_SET(fd,&man->read);
+				FD_SET(fd,&man->write);
 			}
 		}
 		if(fd > man->maxfd)
 			man->maxfd = fd;
 	}
-	if(man->socketnum == 0){
+/*	if(man->socketnum == 0){
 		goto out;
 	}
+	*/
 	if(n = select(man->maxfd+1,&man->read,&man->write,NULL,&tv) < 0)
 		goto out;
 	for(i = 0;i < QUEUELEN;i++){
@@ -184,7 +181,7 @@ void do_work(int id)
 			FD_ISSET(fd,&man->read)||FD_ISSET(fd,&man->write))){
 			n = sizeof(int);
 			if(getsockopt(fd,SOL_SOCKET,SO_ERROR,&error,&n) < 0 || error != 0){
-				/* Èý´ÎÎÕÊÖÊ§°Ü*/
+				/* ä¸‰æ¬¡æ¡æ‰‹å¤±è´¥*/
 				//continue;
 			}
 			FD_CLR(fd,&man->write);
@@ -196,7 +193,8 @@ void do_work(int id)
 			if((n = read(fd,buff,sizeof(buff))) == 0){
 				clear_a_task(man,&man->tasks[i]);
 			}else{
-			//	printf("%s\n",buff);
+				//printf("%s\n",buff);
+				match_fsm(man->tasks[i].resid,buff,n);
 			}
 
 		}else if(state == TASK_CONNECT || state == TASK_DATA){

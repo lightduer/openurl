@@ -165,7 +165,6 @@ void *receiver_proc(void *data)
 			findanddelete(request);
 			sleep(1);
 		}
-
 	}
 	return NULL;
 }
@@ -228,11 +227,8 @@ int start()
 		ret = -1;
 		goto out;
 	}
-
 	pthread_sigmask(SIG_BLOCK,&bset,&oset);
-
 	while(!stop){
-
 		if(reload){
 			init_engine();
 			release_engine();

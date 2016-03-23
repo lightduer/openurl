@@ -220,7 +220,6 @@ static void free_fsm(struct engine *e)
 		free(e->kinfos[i].word);
 		free(e->kinfos[i].cat_index);
 	}
-	mpse_free(e->fsm);
 	free(e);
 out:
 	return;
@@ -271,18 +270,18 @@ out:
 	pthread_mutex_unlock(&englock);
 	free_fsm(fsm);
 }
-#if 0 
+#if 1 
 
 void *get_fsm();
 int main()
 {
-	char buff[250] = "lalalal";//"你好,王菲,我是狗仔队教练,我手中有你的艳照";
+	char buff[250] = "王菲";
 	void *resid;
 	init_engine();
 
 	resid = get_fsm();
 	match_fsm(resid,buff,strlen(buff));
-	release_fsm();
+	release_fsm(resid);
 	release_engine();
 	return 0;
 }
@@ -339,14 +338,17 @@ void release_fsm(void *resin)
 
 int match(void *priv,int index,int id,void *data)
 {
+	struct keywordinfo *matchword = (struct keywordinfo *)priv;
+	printf("word matched is %s\n",matchword->word);
+/*
 	int same = 0;
 	struct resinfo *res = ( struct resinfo *)data;
 	struct keywordlist *list = res->list;
-	struct keywordlist **last = &(res->list);
+	struct keywordlist *last;
 	struct keywordinfo *word;
 	struct keywordinfo *matchword = (struct keywordinfo *)priv;
-	while(list){
-		last = &list;
+	while(!list){
+		last = list;
 		word = list->keyword;
 		if(word->iid == id){
 			same = 1;
@@ -363,15 +365,20 @@ int match(void *priv,int index,int id,void *data)
 	}
 	list->keyword = matchword;
 	list->next = NULL;
-	*last = list;	
+	last->next = list;	
 out:
 	return same;
+	*/
+	return 0;
 }
 int match_fsm(void *resid,unsigned char *text,int textlen)
 {
 	struct resinfo *res = (struct resinfo *)resid;
-	struct engine *e = res->fsm;
-	return mpse_search(e->fsm,text,textlen,match,resid,&res->last_state);
+	if(res->last_state != 0)
+		printf("last state is %d\n",res->last_state);
+	printf("%s\n",text);
+
+	return mpse_search(res->fsm,text,textlen,match,resid,&res->last_state);
 }
 int get_result(void *resid)
 {
