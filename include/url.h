@@ -20,29 +20,21 @@
 #define URL_HOST_LEN 256
 #define URL_PATH_LEN 2048
 
-struct url_item_request
+#define URL_INVALID_TYPE 0x0000
+
+struct url_item
 {
 	char method;
 	unsigned int dst;
-	char host[URL_HOST_LEN];
-	char path[URL_PATH_LEN];
-
-};
-
-struct url_item_request_deamon
-{
-	struct nlmsghdr hdr;
-	struct url_item_request data;
-};
-
-
-struct url_item_result
-{
-	struct nlmsghdr hdr; 
 	unsigned short type;
 	char host[URL_HOST_LEN];
 	char path[URL_PATH_LEN];
+};
 
+struct url_item_hdr
+{
+	struct nlmsghdr hdr;
+	struct url_item data;
 };
 
 #endif

@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include "inteli_sock_hash.h"
 #include "inteli_engine.h"
 #include "../include/url.h"
 
@@ -21,13 +22,15 @@
 
 #define SELECT_NUM 4
 
+static int stop = 0;
+
 struct task
 {
 	int selectnum;//该socket轮训的次数没有数据到来过
 	int state;
 	int sock;
 	void *resid;
-	struct url_item_request *data;
+	struct url_item *data;
 };
 
 struct worker
@@ -46,40 +49,15 @@ struct worker
 int master_hold[WORKERS_NUM];
 struct worker workers[WORKERS_NUM];
 
-void init_workers(void *(*worker_proc)(void *))
-{
-	int i;
-	int *data;
 
-	for(i = 0;i < WORKERS_NUM;i++){
-		data = (int *)malloc(sizeof(int));
-		*data = i;
-		FD_ZERO(&workers[i].read);
-		FD_ZERO(&workers[i].write);
-		workers[i].socketnum = 0;
-		master_hold[i] = QUEUELEN;
-		memset(&workers[i].tasks,0,sizeof(QUEUELEN * sizeof(struct task)));
-		workers[i].freenum = &master_hold[i];
-		pthread_mutex_init(&(workers[i].lock),NULL);
-		pthread_cond_init(&(workers[i].cond),NULL);
-		workers[i].maxfd = -1;
-		pthread_create(&workers[i].id,NULL,worker_proc,data);
-	}
 
-}
-void exit_workers()
-{
-	int i;
-	for(i = 0;i < WORKERS_NUM;i++){
-		pthread_join(workers[i].id,NULL);
-		pthread_mutex_destroy(&workers[i].lock);
-	}
-}
-int send_http_request(struct task *t)
+
+
+static int send_http_request(struct task *t)
 {
 	int ret = 0,len,fd = t->sock;
 	char *http_packet = NULL;
-	struct url_item_request *data = t ->data;
+	struct url_item *data = t ->data;
 #define HTTP_LEN_EXTRA 26
 	len = strlen(data->host) + strlen(data->path) + HTTP_LEN_EXTRA;
 	/*
@@ -95,11 +73,18 @@ int send_http_request(struct task *t)
 	t->state = TASK_DATA;
 	free(http_packet);
 }
-void clear_a_task(struct worker *man,struct task *tk)
+
+static void send_to_resulter(struct url_item *data );
+
+static void clear_a_task(struct worker *man,struct task *tk)
 {
+	int result;
 	close(tk->sock);
 	free(tk->data);
 	man->socketnum--;
+	result = get_result(tk->resid);
+	tk->data->type = result;
+	send_to_resulter(tk->data);
 	release_fsm(tk->resid);
 	pthread_mutex_lock(&man->lock);
 	memset(tk,0,sizeof(struct task));
@@ -107,7 +92,7 @@ void clear_a_task(struct worker *man,struct task *tk)
 	pthread_mutex_unlock(&man->lock);			
 
 }
-void do_work(int id)
+static void do_work(int id)
 {
 	int i,fd = -1,state,flags,n,error;
 	struct worker *man = &workers[id];
@@ -221,7 +206,7 @@ static int select_worker()
 	return who;
 	
 }
-int queue_worker(struct url_item_request *data)
+static int queue_worker(struct url_item *data)
 {
 	int i,w;
 	struct worker *man;
@@ -244,3 +229,219 @@ int queue_worker(struct url_item_request *data)
 out:
 	return w;
 }
+static void *worker_proc(void *data)
+{
+	int id = *(int *)data;
+	free(data);
+	while(!stop){
+		do_work(id);
+	}
+	return NULL;
+}
+static void init_workers()
+{
+	int i;
+	int *data;
+
+	for(i = 0;i < WORKERS_NUM;i++){
+		data = (int *)malloc(sizeof(int));
+		*data = i;
+		FD_ZERO(&workers[i].read);
+		FD_ZERO(&workers[i].write);
+		workers[i].socketnum = 0;
+		master_hold[i] = QUEUELEN;
+		memset(&workers[i].tasks,0,sizeof(QUEUELEN * sizeof(struct task)));
+		workers[i].freenum = &master_hold[i];
+		pthread_mutex_init(&(workers[i].lock),NULL);
+		pthread_cond_init(&(workers[i].cond),NULL);
+		workers[i].maxfd = -1;
+		pthread_create(&workers[i].id,NULL,worker_proc,data);
+	}
+
+}
+static void exit_workers()
+{
+	int i;
+	for(i = 0;i < WORKERS_NUM;i++){
+		pthread_join(workers[i].id,NULL);
+		pthread_mutex_destroy(&workers[i].lock);
+		pthread_cond_destroy(&workers[i].cond);
+	}
+}
+
+/////////////////////////////分割线///////////////////////////////////////////
+/*****************************以下是结果下称逻辑******************************/
+
+#define RESULT_MAX 5
+struct resulter
+{
+	int valid_num;
+	struct url_item *queue[RESULT_MAX];
+	pthread_cond_t cond;
+	pthread_mutex_t lock;//保护freenum 和IDLE状态
+};
+
+struct resulter rer;
+pthread_t resulterid;
+
+
+static void send_to_resulter(struct url_item *data )
+{
+	int send = 0;
+	int isfull = 0;
+	while(!send){
+		pthread_mutex_lock(&rer.lock);
+		if(rer.valid_num == RESULT_MAX){
+			isfull = 1;	
+		}else{
+			rer.queue[rer.valid_num] = data;
+			rer.valid_num++;
+			send = 1;
+		}
+		pthread_mutex_unlock(&rer.lock);
+		if(isfull == 1){
+			pthread_cond_signal(&rer.cond);
+			usleep(50*1000);
+		}
+	}
+}
+
+static void store_result()
+{
+	int i,j;
+	int tmp_num = 0;
+	struct iovec *iov;
+	struct timeval now;
+	struct timespec outtime;
+	struct url_item *rt;
+	struct url_item *tmp_queue[RESULT_MAX];
+
+	pthread_mutex_lock(&rer.lock);
+	if(rer.valid_num < RESULT_MAX){
+		gettimeofday(&now,NULL);
+		outtime.tv_sec = now.tv_sec + 1;
+		outtime.tv_nsec = 0;
+		pthread_cond_timedwait(&rer.cond,&rer.lock,&outtime);
+	}
+	if(rer.valid_num > 0){
+		tmp_num = rer.valid_num;
+		memcpy(&tmp_queue,&rer.queue,RESULT_MAX*sizeof(struct url_item *));
+	}
+	rer.valid_num = 0;
+	pthread_mutex_unlock(&rer.lock);
+	if(tmp_num == 0)
+		goto out;
+	iov = (struct iovec *)malloc(sizeof(struct iovec) *(tmp_num + 1));
+	for(i = 0,j = 1;i < tmp_num;i++){
+		if(tmp_queue[i]->type != 0){
+			iov[j].iov_base = tmp_queue[i];
+			iov[j].iov_len = sizeof(struct url_item);
+			j++;
+		} 
+	}
+	send_msg2(MSG_ADD_URL,(void*)iov,j);
+	for(i = 0,j = 1;i < tmp_num;i++){
+		findanddelete(tmp_queue[i]);
+		free(tmp_queue[i]);
+	}
+	free(iov);
+out:
+	return;
+}
+static void *resulter_proc(void *data)
+{
+	while(!stop){
+		store_result();
+	}
+	return NULL;
+}
+
+static void init_rer()
+{
+	rer.valid_num = 0;
+	pthread_mutex_init(&rer.lock,NULL);
+	pthread_cond_init(&rer.cond,NULL);
+	pthread_create(&resulterid,NULL,resulter_proc,NULL);
+}
+static void exit_rer()
+{
+	pthread_join(resulterid,NULL);
+	pthread_mutex_destroy(&rer.lock);
+	pthread_cond_destroy(&rer.cond);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+static void *receiver_proc(void *data)
+{
+	struct url_item *request;
+	while(!stop){
+		request = NULL;
+		request = (struct url_item *)malloc(sizeof(struct url_item));
+		if(request == NULL){
+			sleep(1);
+			continue;
+		}
+		memset(request,0,sizeof(struct url_item));
+		if(recv_msg(request) == -1){
+			free(request);
+			usleep(500*1000);
+			continue;
+		}
+		if(findandinsert(request) == -1){	
+			free(request);
+			continue;
+		}
+		if(queue_worker(request) == -1){
+			findanddelete(request);
+			sleep(1);
+		}
+	}
+	return NULL;
+}
+
+void stop_thread()
+{
+	stop = 1;
+}
+
+pthread_t rcvid;
+
+
+void init_threads()
+{
+	pthread_create(&rcvid,NULL,receiver_proc,NULL);
+	init_workers();
+	init_rer();
+}
+
+
+void exit_threads()
+{
+	pthread_join(rcvid,NULL);
+	exit_workers();
+	exit_rer();
+}
+
+#if 1
+
+int main()
+{
+	init_hash();
+	init_sock();
+	init_threads();
+	struct url_item *data;
+	while(1){
+		data = (struct url_item *)malloc(sizeof(struct url_item));
+		data->method = 1;
+		data->dst = 2;
+		data->type =3;
+		memcpy(data->host,"www.baidu.com",strlen("www.baidu.com"));
+		send_to_resulter(data);
+		sleep(1);
+	}
+	exit_threads();
+	release_sock();
+
+}
+
+#endif

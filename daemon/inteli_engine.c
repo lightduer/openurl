@@ -60,22 +60,20 @@ int init_engine_db(struct engine *e)
 	char *tmpptr;
 	int *indexptr;
 	struct keywordinfo *ktmp;
+	sqlite3 *keyword_db;
 	int row,col;
 	char **result;
-	sqlite3 *keyword_db;
 	int grouptype,groupid;
 #define PER_CATEGORY_KEYWORD 50	
 	int deta = 5*PER_CATEGORY_KEYWORD;
-
-	sqlret = sqlite3_open(URL_KEYWORD_DB, &keyword_db);
-	if(sqlret != SQLITE_OK)
-		goto out;
+	
+	 if(sqlite3_open(URL_KEYWORD_DB, &keyword_db) != SQLITE_OK)
+		 goto out;
 	sql = sqlite3_mprintf("select *from urlkeyword");
 	if(sql == NULL)
-		goto dbclose_out;
-	sqlret = sqlite3_get_table(keyword_db, sql, &result, &row, &col, NULL);
-	if(sqlret != SQLITE_OK)
-		goto dbclose_out;
+		goto out;
+	if(sqlite3_get_table(keyword_db, sql, &result, &row, &col, NULL) != SQLITE_OK)
+		goto out;
 	
 	e->categorynum = row;
 	e->keywordnum = deta;
@@ -167,12 +165,11 @@ mem_out:
 				free(e->kinfos[i].word);
 		free(e->kinfos);
 	}
-dbclose_out:
-
-	sqlite3_close(keyword_db);
 out:
 	ret = -1;
 success:
+	if(keyword_db != NULL)
+		sqlite3_close(keyword_db);
 	return ret;
 }
 int init_mpse(struct engine *e)
@@ -182,7 +179,7 @@ int init_mpse(struct engine *e)
 	e->fsm = mpse_new("inteli_url",MPSE_AC,free);
 	for(i = 0;i < e->keywordnum;i++){
 		info = &e->kinfos[i];
-		printf("%s,len = %d\n",info->word,strlen(info->word));
+		printf("%s,len = %lu\n",info->word,strlen(info->word));
 		info->iid = i+1;
 		mpse_add_pattern(e->fsm,info->word,strlen(info->word),0,0,0,info,(i+1));
 	}

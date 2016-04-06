@@ -32,8 +32,9 @@ int intel_netlink_init(void)
 
 void kernel_receive(struct sk_buff *skb)
 {
+	int len,len2 = sizeof(struct url_item);
 	struct nlmsghdr *nlh = NULL;
-	
+	struct url_item *r;	
 	if( skb == NULL )
 		goto out;
 	if(skb->len < sizeof(struct nlmsghdr))
@@ -44,9 +45,16 @@ void kernel_receive(struct sk_buff *skb)
 		goto out;
 	if(skb->len < nlh->nlmsg_len)
 		goto out;
-	
+	printk("recevie a msg!\n");	
 	switch(nlh->nlmsg_type){
 		case MSG_ADD_URL:
+			len = skb->len - NLMSG_LENGTH(0);
+			r = (struct url_item *)NLMSG_DATA(nlh);
+			printk("%s\n",r->host);
+			while(len >= len2){
+				r++;
+				len -= len2;	
+			}
 			break;
 		case MSG_USER_PID:
 			user_pid = nlh->nlmsg_pid;
@@ -68,7 +76,7 @@ void netlink_intel_send(char *host,int hostlen,char *path,int pathlen,
 	unsigned char *old_tail = NULL;
 	struct sk_buff *skb = NULL;
 	struct nlmsghdr *nlh = NULL;
-	struct url_item_request *data;
+	struct url_item *data;
 
 	
 	if(user_pid == 0)
@@ -78,26 +86,13 @@ void netlink_intel_send(char *host,int hostlen,char *path,int pathlen,
 		goto out;
 	if(pathlen < 0 || pathlen > URL_PATH_LEN)
 		goto out;
-	/*
-	char *url;
-	url = kmalloc(hostlen + pathlen,GFP_ATOMIC);
-	if(url == NULL){
-		printk("alloc memory error!\n");
-		goto out;
-	}
-	memcpy(url,host,hostlen);
-	memcpy(url+hostlen,path,pathlen);
-	printk("url is %.*s\n",hostlen+pathlen,url);
-	kfree(url);
-	goto out;
-	*/
-	size = NLMSG_SPACE(sizeof(struct url_item_request));
+	size = NLMSG_SPACE(sizeof(struct url_item));
 	skb = alloc_skb(size, GFP_ATOMIC);
 	old_tail = skb_tail_pointer(skb);	
-	nlh = (struct nlmsghdr*)skb_put(skb,NLMSG_LENGTH(sizeof( struct url_item_request)));
+	nlh = (struct nlmsghdr*)skb_put(skb,NLMSG_LENGTH(sizeof( struct url_item)));
 	data = NLMSG_DATA(nlh);
 
-	memset(data, 0, sizeof(struct url_item_request));
+	memset(data, 0, sizeof(struct url_item));
 	memcpy(data->host,host,hostlen);
 	data->host[hostlen] = '\0';
 	printk("host:%s\n",data->host);
