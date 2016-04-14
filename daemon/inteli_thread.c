@@ -49,10 +49,6 @@ struct worker
 int master_hold[WORKERS_NUM];
 struct worker workers[WORKERS_NUM];
 
-
-
-
-
 static int send_http_request(struct task *t)
 {
 	int ret = 0,len,fd = t->sock;
@@ -78,19 +74,15 @@ static void send_to_resulter(struct url_item *data );
 
 static void clear_a_task(struct worker *man,struct task *tk)
 {
-	int result;
 	close(tk->sock);
-	free(tk->data);
 	man->socketnum--;
-	result = get_result(tk->resid);
-	tk->data->type = result;
+	tk->data->type = get_result(tk->resid);
 	send_to_resulter(tk->data);
 	release_fsm(tk->resid);
 	pthread_mutex_lock(&man->lock);
 	memset(tk,0,sizeof(struct task));
 	(*(man->freenum))++;
-	pthread_mutex_unlock(&man->lock);			
-
+	pthread_mutex_unlock(&man->lock);
 }
 static void do_work(int id)
 {
@@ -107,24 +99,29 @@ static void do_work(int id)
 	man->maxfd = -1;
 	
 	pthread_mutex_lock(&man->lock);	
+	/*当freenum == QUEUELEN 说明此工作线程，没有任务，需要睡眠等待超时，或者消息*/
 	while((*(man->freenum)) == QUEUELEN)
-		pthread_cond_wait(&man->cond,&man->lock);
+		pthread_cond_wait(&man->cond,&man->lock);//超时时间
 	pthread_mutex_unlock(&man->lock);
-	
+
+/*	if(isstop)
+		goto out;
+		*/
+	/*below code: 有任务*/	
 	for(i = 0; i < QUEUELEN; i++){
 		state = man->tasks[i].state;
 		if(state == TASK_READY ){
 			if(man->socketnum >= SOCKETNUM)
 				continue;
 			memset(&addr,0,sizeof(struct sockaddr_in));
-			fd = socket(AF_INET,SOCK_STREAM,0);
+			fd = socket(AF_INET,SOCK_STREAM,0);/*close 代码:<file:lineno> = <>*/
 			flags = fcntl(fd,F_GETFL,0);
 			fcntl(fd,F_SETFL,flags|O_NONBLOCK);
 			addr.sin_family = AF_INET;
 			addr.sin_port = htons(80);
 			addr.sin_addr.s_addr = ((man->tasks[i]).data)->dst;
 			man->tasks[i].sock = fd;
-			man->tasks[i].resid = get_fsm();
+			man->tasks[i].resid = get_fsm();/*release_fsm <file:lineno> = <>*/
 			(man->socketnum)++;
 			if(connect(fd,(struct sockaddr*)&addr,sizeof(struct sockaddr))< 0){
 				/*三次握手尚未完成*/
@@ -139,7 +136,7 @@ static void do_work(int id)
 				send_http_request(&man->tasks[i]);
 				FD_SET(fd,&man->read);
 			}
-		}else {
+		}else {/*TASK_IDLE,CONNECT,DATA*/
 			fd = man->tasks[i].sock;
 			if(state == TASK_CONNECT || state == TASK_DATA){
 				FD_SET(fd,&man->read);
@@ -151,10 +148,7 @@ static void do_work(int id)
 		if(fd > man->maxfd)
 			man->maxfd = fd;
 	}
-/*	if(man->socketnum == 0){
-		goto out;
-	}
-	*/
+	
 	if(n = select(man->maxfd+1,&man->read,&man->write,NULL,&tv) < 0)
 		goto out;
 	for(i = 0;i < QUEUELEN;i++){
@@ -167,7 +161,8 @@ static void do_work(int id)
 			n = sizeof(int);
 			if(getsockopt(fd,SOL_SOCKET,SO_ERROR,&error,&n) < 0 || error != 0){
 				/* 三次握手失败*/
-				//continue;
+				clear_a_task(man,&man->tasks[i]);
+				continue;
 			}
 			FD_CLR(fd,&man->write);
 			send_http_request(&man->tasks[i]);
@@ -178,7 +173,10 @@ static void do_work(int id)
 			if((n = read(fd,buff,sizeof(buff))) == 0){
 				clear_a_task(man,&man->tasks[i]);
 			}else{
-				//printf("%s\n",buff);
+				/*
+				 * 1,注意这是TCP数据，不是HTTP数据
+				 * 2,注意HTTP数据需要转码
+				 * */
 				match_fsm(man->tasks[i].resid,buff,n);
 			}
 
@@ -204,7 +202,6 @@ static int select_worker()
 			who = i;			
 	}
 	return who;
-	
 }
 static int queue_worker(struct url_item *data)
 {
@@ -331,7 +328,7 @@ static void store_result()
 	pthread_mutex_unlock(&rer.lock);
 	if(tmp_num == 0)
 		goto out;
-	iov = (struct iovec *)malloc(sizeof(struct iovec) *(tmp_num + 1));
+	iov = (struct iovec *)malloc(sizeof(struct iovec) *(tmp_num + 1));/*free code : <file,lineno> = <this,348>*/
 	for(i = 0,j = 1;i < tmp_num;i++){
 		if(tmp_queue[i]->type != 0){
 			iov[j].iov_base = tmp_queue[i];
@@ -382,10 +379,14 @@ static void *receiver_proc(void *data)
 			continue;
 		}
 		memset(request,0,sizeof(struct url_item));
-		if(recv_msg(request) == -1){
-			free(request);
-			usleep(500*1000);
-			continue;
+		while(recv_msg(request) == -1){
+			//处理超时情况
+			if(!stop)
+				usleep(500*1000);
+			else{
+				free(request);
+				goto out;
+			}
 		}
 		if(findandinsert(request) == -1){	
 			free(request);
@@ -393,9 +394,11 @@ static void *receiver_proc(void *data)
 		}
 		if(queue_worker(request) == -1){
 			findanddelete(request);
+			free(request);
 			sleep(1);
 		}
 	}
+out:
 	return NULL;
 }
 
@@ -422,7 +425,7 @@ void exit_threads()
 	exit_rer();
 }
 
-#if 1
+#if 0
 
 int main()
 {

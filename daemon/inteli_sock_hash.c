@@ -93,7 +93,7 @@ void release_hash()
 	hlist_for_each_entry_safe(node,n,next,&table->head[i],hnode){
 			delete(node);
 			free(node);
-			free(node->data);
+			//free(node->data);
 		}
 	}
 	pthread_mutex_unlock(&table->lock);
